@@ -52,7 +52,14 @@ async function getWrapKey() {
 }
 
 export async function bootstrapSecurityContext() {
-  if (state.sessionKey) {
+  if (state.publicKey) {
+    return state;
+  }
+
+  if (typeof window !== 'undefined' && window.__PLAYFLIX_SECURITY__) {
+    state.sessionId = window.__PLAYFLIX_SECURITY__.sessionId;
+    state.publicKey = window.__PLAYFLIX_SECURITY__.publicKey;
+    state.csrfToken = window.__PLAYFLIX_SECURITY__.csrfToken;
     return state;
   }
 
