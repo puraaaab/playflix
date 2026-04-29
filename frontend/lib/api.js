@@ -1,13 +1,9 @@
 import axios from 'axios';
-import { bootstrapSecurityContext, clearSecurityContext, encryptPayload, getSecurityToken, signPayload } from './security.js';
+import { bootstrapSecurityContext, clearSecurityContext, encryptPayload, getSecurityToken, getSessionId, signPayload } from './security.js';
 
 function resolveApiBaseUrl() {
   if (typeof window !== 'undefined') {
-    const configured = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-    if (!configured || configured.includes('localhost') || configured.includes('127.0.0.1')) {
-      return `${window.location.protocol}//${window.location.hostname}:4000`;
-    }
-    return configured;
+    return '';
   }
 
   return process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
@@ -41,6 +37,10 @@ api.interceptors.request.use(async (config) => {
 
   config.headers = config.headers || {};
   config.headers['x-csrf-token'] = getSecurityToken() || '';
+  const sessionId = getSessionId();
+  if (sessionId) {
+    config.headers['x-playflix-session'] = sessionId;
+  }
 
   if (shouldEncrypt && config.data && typeof config.data === 'object' && !('payload' in config.data && 'iv' in config.data)) {
     const encrypted = await encryptPayload(config.data);

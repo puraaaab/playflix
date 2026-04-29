@@ -17,6 +17,8 @@ export function createApp() {
 
   app.set('trust proxy', 1);
   app.use(attachRequestContext);
+  const allowedOrigins = env.clientOrigin.split(',').map((o) => o.trim()).filter(Boolean);
+
   app.use(helmet({
     contentSecurityPolicy: {
       useDefaults: true,
@@ -26,13 +28,12 @@ export function createApp() {
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
         imgSrc: ["'self'", 'data:', 'https:'],
-        connectSrc: ["'self'", env.clientOrigin, 'https://checkout.razorpay.com'],
+        connectSrc: ["'self'", ...allowedOrigins, 'https://checkout.razorpay.com'],
         frameSrc: ['https://checkout.razorpay.com']
       }
     },
     crossOriginEmbedderPolicy: false
   }));
-  const allowedOrigins = env.clientOrigin.split(',').map((o) => o.trim()).filter(Boolean);
   app.use(cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);

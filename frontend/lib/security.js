@@ -1,10 +1,6 @@
 function resolveApiBaseUrl() {
   if (typeof window !== 'undefined') {
-    const configured = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-    if (!configured || configured.includes('localhost') || configured.includes('127.0.0.1')) {
-      return `${window.location.protocol}//${window.location.hostname}:4000`;
-    }
-    return configured;
+    return '';
   }
 
   return process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
@@ -79,6 +75,10 @@ export async function bootstrapSecurityContext() {
 
 export function getSecurityToken() {
   return state.csrfToken;
+}
+
+export function getSessionId() {
+  return state.sessionId;
 }
 
 export function clearSecurityContext() {

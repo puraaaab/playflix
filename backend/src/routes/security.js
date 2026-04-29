@@ -10,14 +10,14 @@ router.get('/bootstrap', (req, res) => {
   res.cookie('playflix_session', session.sessionId, {
     httpOnly: true,
     secure,
-    sameSite: 'strict',
+    sameSite: 'lax',
     path: '/api',
     maxAge: 1000 * 60 * 30
   });
   res.cookie('playflix_csrf', session.csrfToken, {
     httpOnly: false,
     secure,
-    sameSite: 'strict',
+    sameSite: 'lax',
     path: '/api',
     maxAge: 1000 * 60 * 30
   });
@@ -39,7 +39,7 @@ router.get('/csrf', (req, res) => {
   res.cookie('playflix_csrf', token, {
     httpOnly: false,
     secure,
-    sameSite: 'strict',
+    sameSite: 'lax',
     path: '/api',
     maxAge: 1000 * 60 * 30
   });

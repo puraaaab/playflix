@@ -105,17 +105,20 @@ export function verifyRefreshToken(token) {
 
 export function setAuthCookies(res, accessToken, refreshToken) {
   const secure = env.nodeEnv === 'production';
+  // Use 'lax' so cookies are sent on cross-origin requests when frontend and backend
+  // share the same hostname but different ports (e.g. LAN / network-hosted dev).
+  // 'strict' blocks cookies entirely in that scenario, causing 401s on /me and /refresh.
   res.cookie('playflix_access', accessToken, {
     httpOnly: true,
     secure,
-    sameSite: 'strict',
+    sameSite: 'lax',
     path: '/',
     maxAge: 1000 * 60 * 15
   });
   res.cookie('playflix_refresh', refreshToken, {
     httpOnly: true,
     secure,
-    sameSite: 'strict',
+    sameSite: 'lax',
     path: '/api/auth',
     maxAge: 1000 * 60 * 60 * 24 * 7
   });
@@ -123,8 +126,8 @@ export function setAuthCookies(res, accessToken, refreshToken) {
 
 export function clearAuthCookies(res) {
   const secure = env.nodeEnv === 'production';
-  res.clearCookie('playflix_access', { httpOnly: true, secure, sameSite: 'strict', path: '/' });
-  res.clearCookie('playflix_refresh', { httpOnly: true, secure, sameSite: 'strict', path: '/api/auth' });
+  res.clearCookie('playflix_access', { httpOnly: true, secure, sameSite: 'lax', path: '/' });
+  res.clearCookie('playflix_refresh', { httpOnly: true, secure, sameSite: 'lax', path: '/api/auth' });
 }
 
 export function sanitizeText(value) {
