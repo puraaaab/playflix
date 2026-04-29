@@ -1,7 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { query } from '../config/db.js';
-import { requireCsrf, requireEncryptedBody, requireSecuritySession, validateBody, verifySignedBody } from '../middleware/security.js';
+import { requireCsrf, requirePackedBody, requireSecuritySession, validateBody, verifySignedBody } from '../middleware/security.js';
 import { appendSecurityLog, clearAuthCookies, createAccessToken, createRefreshToken, hashPassword, hashRefreshToken, sanitizeText, setAuthCookies, verifyAccessToken, verifyPassword, verifyRefreshToken } from '../utils/security.js';
 
 const router = express.Router();
@@ -38,7 +38,7 @@ async function issueSession(res, user) {
   return { accessToken, refreshToken };
 }
 
-router.post('/signup', requireSecuritySession, requireCsrf, requireEncryptedBody, verifySignedBody, validateBody(authSchema), async (req, res, next) => {
+router.post('/signup', requireSecuritySession, requireCsrf, requirePackedBody, verifySignedBody, validateBody(authSchema), async (req, res, next) => {
   try {
     const name = sanitizeText(req.body.name || 'PlayFlix Member');
     const email = req.body.email;
@@ -83,7 +83,7 @@ router.post('/signup', requireSecuritySession, requireCsrf, requireEncryptedBody
   }
 });
 
-router.post('/login', requireSecuritySession, requireCsrf, requireEncryptedBody, verifySignedBody, validateBody(authSchema.omit({ name: true })), async (req, res, next) => {
+router.post('/login', requireSecuritySession, requireCsrf, requirePackedBody, verifySignedBody, validateBody(authSchema.omit({ name: true })), async (req, res, next) => {
   try {
     const email = req.body.email;
     const rows = await query('SELECT * FROM users WHERE email = ? LIMIT 1', [email]);

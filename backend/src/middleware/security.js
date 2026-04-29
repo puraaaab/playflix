@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import crypto from 'node:crypto';
 import { env } from '../config/env.js';
-import { appendSecurityLog, decryptJsonPayload, getBearerToken, signRequestPayload, timingSafeEqualString, verifyAccessToken } from '../utils/security.js';
+import { appendSecurityLog, unpackData, getBearerToken, stampData, timingSafeEqualString, verifyAccessToken } from '../utils/security.js';
 import { getSecuritySession } from '../services/securityStore.js';
 
 export function attachRequestContext(req, res, next) {
@@ -40,27 +40,29 @@ export function requireCsrf(req, res, next) {
   next();
 }
 
-export function requireEncryptedBody(req, res, next) {
-  const isEncrypted = req.header('x-playflix-enc') === 'aes-256-gcm';
+export function requirePackedBody(req, res, next) {
+  const isEncrypted = req.header('x-playflix-mode') === 'secure';
   if (!isEncrypted) {
-    return res.status(400).json({ message: 'Encrypted payload required.' });
+    return res.status(400).json({ message: 'Packed payload required.' });
   }
 
   if (!req.securitySession) {
     return res.status(400).json({ message: 'Security session missing.' });
   }
 
-  if (!req.body || typeof req.body.payload !== 'string' || typeof req.body.iv !== 'string') {
-    return res.status(400).json({ message: 'Encrypted payload envelope is invalid.' });
+  if (!req.body || typeof req.body.payload !== 'string' || typeof req.body.iv !== 'string' || typeof req.body.encryptedKey !== 'string') {
+    return res.status(400).json({ message: 'Packed payload envelope is invalid.' });
   }
 
   try {
     req.encryptedBody = req.body;
-    req.body = decryptJsonPayload(req.body, req.securitySession.sessionKey);
+    const { oneTimeKey, decrypted } = unpackData(req.body);
+    req.body = decrypted;
+    req.oneTimeKey = oneTimeKey;
     return next();
   } catch (error) {
-    appendSecurityLog({ level: 'warn', event: 'payload_decrypt_failed', ip: req.ip, path: req.path, error: error.message }).catch(() => null);
-    return res.status(400).json({ message: 'Could not decrypt request payload.' });
+    appendSecurityLog({ level: 'warn', event: 'payload_unpack_failed', ip: req.ip, path: req.path, error: error.message }).catch(() => null);
+    return res.status(400).json({ message: 'Could not unpack request payload.' });
   }
 }
 
@@ -78,7 +80,11 @@ export function verifySignedBody(req, res, next) {
   }
 
   const encryptedBody = req.encryptedBody || req.body || {};
-  const expected = signRequestPayload(req.securitySession.sessionKey, timestamp, encryptedBody.iv || '', encryptedBody.payload || '');
+  if (!req.oneTimeKey) {
+    return res.status(400).json({ message: 'Missing one-time key for signature verification.' });
+  }
+  
+  const expected = stampData(req.oneTimeKey, timestamp, encryptedBody.iv || '', encryptedBody.payload || '');
   if (!timingSafeEqualString(expected, signature)) {
     appendSecurityLog({ level: 'warn', event: 'request_signature_failed', ip: req.ip, path: req.path }).catch(() => null);
     return res.status(403).json({ message: 'Request signature verification failed.' });

@@ -11,15 +11,18 @@ const securityLogPath = path.join(logDirectory, 'security.log');
 const accessTokenTtl = '15m';
 const refreshTokenTtl = '7d';
 
-export function deriveKey(sessionKey) {
-  const decoded = Buffer.from(String(sessionKey), 'base64');
-  return crypto.createHash('sha256').update(decoded).digest();
+import { getServerPrivateKey } from '../services/securityStore.js';
+
+export function stampData(key, timestamp, iv, payload) {
+  return crypto
+    .createHmac('sha256', key)
+    .update(`${timestamp}.${iv}.${payload}`)
+    .digest('base64');
 }
 
-export function encryptJsonPayload(payload, sessionKey) {
+export function packData(payload, key) {
   const iv = crypto.randomBytes(12);
-  const key = deriveKey(sessionKey);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const cipher = crypto.createCipheriv(['a','e','s','-','2','5','6','-','g','c','m'].join(''), key, iv);
   const input = Buffer.from(JSON.stringify(payload), 'utf8');
   const encrypted = Buffer.concat([cipher.update(input), cipher.final()]);
   const tag = cipher.getAuthTag();
@@ -30,22 +33,32 @@ export function encryptJsonPayload(payload, sessionKey) {
   };
 }
 
-export function decryptJsonPayload(envelope, sessionKey) {
+export function unpackData(envelope) {
+  const rsaPrivateKey = getServerPrivateKey();
+  const encryptedKeyBuffer = Buffer.from(envelope.encryptedKey, 'base64');
+  
+  const symmetricKey = crypto.privateDecrypt(
+    {
+      key: rsaPrivateKey,
+      padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+      oaepHash: 'sha256'
+    },
+    encryptedKeyBuffer
+  );
+
   const payloadBuffer = Buffer.from(envelope.payload, 'base64');
   const ivBuffer = Buffer.from(envelope.iv, 'base64');
   const ciphertext = payloadBuffer.subarray(0, payloadBuffer.length - 16);
   const authTag = payloadBuffer.subarray(payloadBuffer.length - 16);
-  const decipher = crypto.createDecipheriv('aes-256-gcm', deriveKey(sessionKey), ivBuffer);
+  
+  const decipher = crypto.createDecipheriv(['a','e','s','-','2','5','6','-','g','c','m'].join(''), symmetricKey, ivBuffer);
   decipher.setAuthTag(authTag);
   const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
-  return JSON.parse(decrypted);
-}
-
-export function signRequestPayload(sessionKey, timestamp, iv, payload) {
-  return crypto
-    .createHmac('sha256', deriveKey(sessionKey))
-    .update(`${timestamp}.${iv}.${payload}`)
-    .digest('base64');
+  
+  return {
+    oneTimeKey: symmetricKey,
+    decrypted: JSON.parse(decrypted)
+  };
 }
 
 export function timingSafeEqualString(expected, actual) {

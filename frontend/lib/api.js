@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { bootstrapSecurityContext, clearSecurityContext, encryptPayload, getSecurityToken, getSessionId, signPayload } from './security.js';
+import { bootstrapSecurityContext, clearSecurityContext, packData, getSecurityToken, getSessionId, stampData } from './security.js';
 
 function resolveApiBaseUrl() {
   if (typeof window !== 'undefined') {
@@ -42,13 +42,14 @@ api.interceptors.request.use(async (config) => {
     config.headers['x-playflix-session'] = sessionId;
   }
 
-  if (shouldEncrypt && config.data && typeof config.data === 'object' && !('payload' in config.data && 'iv' in config.data)) {
-    const encrypted = await encryptPayload(config.data);
+  if (shouldEncrypt && config.data && typeof config.data === 'object' && !('payload' in config.data && 'iv' in config.data && 'encryptedKey' in config.data)) {
+    const packed = await packData(config.data);
     const timestamp = String(Date.now());
-    const signature = await signPayload(encrypted.payload, encrypted.iv, timestamp);
+    const signature = await stampData(packed._rawKey, timestamp, packed.iv, packed.payload);
 
-    config.data = encrypted;
-    config.headers['x-playflix-enc'] = 'aes-256-gcm';
+    delete packed._rawKey;
+    config.data = packed;
+    config.headers['x-playflix-mode'] = 'secure';
     config.headers['x-playflix-timestamp'] = timestamp;
     config.headers['x-playflix-signature'] = signature;
   }

@@ -1,6 +1,6 @@
 import express from 'express';
 import { env } from '../config/env.js';
-import { createSecuritySession, rotateCsrfToken } from '../services/securityStore.js';
+import { createSecuritySession, rotateCsrfToken, getServerPublicKey } from '../services/securityStore.js';
 
 const router = express.Router();
 
@@ -23,7 +23,7 @@ router.get('/bootstrap', (req, res) => {
   });
   return res.json({
     sessionId: session.sessionId,
-    sessionKey: session.sessionKey,
+    publicKey: getServerPublicKey(),
     csrfToken: session.csrfToken,
     expiresAt: session.expiresAt
   });

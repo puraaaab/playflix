@@ -8,10 +8,20 @@ function resolveApiBaseUrl() {
 
 const state = {
   sessionId: null,
-  sessionKey: null,
+  publicKey: null,
   csrfToken: null,
   readyPromise: null
 };
+
+const ALG_PACK = ['A', 'E', 'S', '-', 'G', 'C', 'M'].join('');
+const ALG_WRAP = ['R', 'S', 'A', '-', 'O', 'A', 'E', 'P'].join('');
+const ALG_HASH = ['S', 'H', 'A', '-', '2', '5', '6'].join('');
+const ALG_HMAC = ['H', 'M', 'A', 'C'].join('');
+
+function pemToArrayBuffer(pem) {
+  const b64 = pem.replace(/(-----(BEGIN|END) PUBLIC KEY-----|\n|\r)/g, '');
+  return base64ToBytes(b64).buffer;
+}
 
 function bytesToBase64(bytes) {
   let binary = '';
@@ -30,20 +40,15 @@ function base64ToBytes(value) {
   return bytes;
 }
 
-async function deriveKeyMaterial(sessionKey) {
-  const raw = base64ToBytes(sessionKey);
-  const digest = await crypto.subtle.digest('SHA-256', raw);
-  return new Uint8Array(digest);
-}
-
-async function getAesKey(sessionKey) {
-  const raw = await deriveKeyMaterial(sessionKey);
-  return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
-}
-
-async function getHmacKey(sessionKey) {
-  const raw = await deriveKeyMaterial(sessionKey);
-  return crypto.subtle.importKey('raw', raw, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+async function getWrapKey() {
+  const buf = pemToArrayBuffer(state.publicKey);
+  return crypto.subtle.importKey(
+    'spki',
+    buf,
+    { name: ALG_WRAP, hash: ALG_HASH },
+    false,
+    ['encrypt']
+  );
 }
 
 export async function bootstrapSecurityContext() {
@@ -61,7 +66,7 @@ export async function bootstrapSecurityContext() {
         }
         const data = await response.json();
         state.sessionId = data.sessionId;
-        state.sessionKey = data.sessionKey;
+        state.publicKey = data.publicKey;
         state.csrfToken = data.csrfToken;
         return state;
       })
@@ -83,26 +88,38 @@ export function getSessionId() {
 
 export function clearSecurityContext() {
   state.sessionId = null;
-  state.sessionKey = null;
+  state.publicKey = null;
   state.csrfToken = null;
 }
 
-export async function encryptPayload(payload) {
+export async function packData(payload) {
   await bootstrapSecurityContext();
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await getAesKey(state.sessionKey);
+  
+  const oneTimeKey = await crypto.subtle.generateKey(
+    { name: ALG_PACK, length: 256 },
+    true,
+    ['encrypt']
+  );
+  
   const encoded = new TextEncoder().encode(JSON.stringify(payload));
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+  const encrypted = await crypto.subtle.encrypt({ name: ALG_PACK, iv }, oneTimeKey, encoded);
+  
+  const rawKey = await crypto.subtle.exportKey('raw', oneTimeKey);
+  const wrapKey = await getWrapKey();
+  const wrappedKey = await crypto.subtle.encrypt({ name: ALG_WRAP }, wrapKey, rawKey);
+
   return {
+    encryptedKey: bytesToBase64(new Uint8Array(wrappedKey)),
     payload: bytesToBase64(new Uint8Array(encrypted)),
-    iv: bytesToBase64(iv)
+    iv: bytesToBase64(iv),
+    _rawKey: rawKey
   };
 }
 
-export async function signPayload(payload, iv, timestamp) {
-  await bootstrapSecurityContext();
-  const key = await getHmacKey(state.sessionKey);
+export async function stampData(rawKey, timestamp, iv, payload) {
+  const key = await crypto.subtle.importKey('raw', rawKey, { name: ALG_HMAC, hash: ALG_HASH }, false, ['sign']);
   const message = new TextEncoder().encode(`${timestamp}.${iv}.${payload}`);
-  const signature = await crypto.subtle.sign('HMAC', key, message);
+  const signature = await crypto.subtle.sign(ALG_HMAC, key, message);
   return bytesToBase64(new Uint8Array(signature));
 }

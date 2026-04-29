@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { env } from '../config/env.js';
 import { timingSafeEqualString, verifyAccessToken } from '../utils/security.js';
 import { z } from 'zod';
-import { requireAuth, requireCsrf, requireEncryptedBody, requireSecuritySession, validateBody, verifySignedBody } from '../middleware/security.js';
+import { requireAuth, requireCsrf, requirePackedBody, requireSecuritySession, validateBody, verifySignedBody } from '../middleware/security.js';
 
 const router = express.Router();
 
@@ -108,7 +108,7 @@ router.get('/my/reactions', requireAuth, async (req, res, next) => {
   }
 });
 
-router.post('/action', requireSecuritySession, requireCsrf, requireEncryptedBody, verifySignedBody, requireAuth, validateBody(actionSchema), async (req, res, next) => {
+router.post('/action', requireSecuritySession, requireCsrf, requirePackedBody, verifySignedBody, requireAuth, validateBody(actionSchema), async (req, res, next) => {
   try {
     const { videoId, action, active } = req.body;
 
@@ -140,7 +140,7 @@ router.post('/action', requireSecuritySession, requireCsrf, requireEncryptedBody
   }
 });
 
-router.post('/history', requireSecuritySession, requireCsrf, requireEncryptedBody, verifySignedBody, requireAuth, validateBody(historySchema), async (req, res, next) => {
+router.post('/history', requireSecuritySession, requireCsrf, requirePackedBody, verifySignedBody, requireAuth, validateBody(historySchema), async (req, res, next) => {
   try {
     const { videoId, positionSeconds, completed } = req.body;
 

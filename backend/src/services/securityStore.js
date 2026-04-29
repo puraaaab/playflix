@@ -1,5 +1,19 @@
 import crypto from 'node:crypto';
 
+const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+});
+
+export function getServerPublicKey() {
+  return publicKey;
+}
+
+export function getServerPrivateKey() {
+  return crypto.createPrivateKey({ key: privateKey, format: 'pem', type: 'pkcs8' });
+}
+
 const sessions = new Map();
 const ttlMs = 1000 * 60 * 30;
 

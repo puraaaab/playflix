@@ -4,7 +4,7 @@ import Razorpay from 'razorpay';
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { query } from '../config/db.js';
-import { requireAuth, requireCsrf, requireEncryptedBody, requireSecuritySession, validateBody, verifySignedBody } from '../middleware/security.js';
+import { requireAuth, requireCsrf, requirePackedBody, requireSecuritySession, validateBody, verifySignedBody } from '../middleware/security.js';
 import { appendSecurityLog, hashRefreshToken, sanitizeText, timingSafeEqualString } from '../utils/security.js';
 
 const router = express.Router();
@@ -59,7 +59,7 @@ router.get('/plans', async (req, res) => {
   return res.json({ plans });
 });
 
-router.post('/create-order', requireSecuritySession, requireCsrf, requireEncryptedBody, verifySignedBody, requireAuth, validateBody(planSchema), async (req, res, next) => {
+router.post('/create-order', requireSecuritySession, requireCsrf, requirePackedBody, verifySignedBody, requireAuth, validateBody(planSchema), async (req, res, next) => {
   try {
     const plan = getPlan(req.body.planCode);
     if (!plan) {
@@ -98,7 +98,7 @@ router.post('/create-order', requireSecuritySession, requireCsrf, requireEncrypt
   }
 });
 
-router.post('/verify', requireSecuritySession, requireCsrf, requireEncryptedBody, verifySignedBody, requireAuth, validateBody(verifySchema), async (req, res, next) => {
+router.post('/verify', requireSecuritySession, requireCsrf, requirePackedBody, verifySignedBody, requireAuth, validateBody(verifySchema), async (req, res, next) => {
   try {
     const plan = getPlan(req.body.planCode);
     if (!plan) {
