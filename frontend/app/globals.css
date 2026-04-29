@@ -1,0 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL@24,400,0&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --bg: #050607;
+  --bg-soft: #101114;
+  --panel: #131417;
+  --panel-soft: #1b1d22;
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #f5f7fb;
+  --muted: #a7b0c0;
+  --accent: #e50914;
+  --accent-2: #ff6b73;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(229, 9, 20, 0.24), transparent 24%),
+    radial-gradient(circle at 80% 0%, rgba(255, 255, 255, 0.06), transparent 20%),
+    linear-gradient(180deg, #090a0c 0%, #050607 46%, #040405 100%);
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: rgba(229, 9, 20, 0.42);
+  color: white;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+@layer components {
+  .playflix-shell {
+    @apply mx-auto max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .glass-panel {
+    @apply border border-white/10 bg-white/5 backdrop-blur-xl shadow-glow;
+  }
+
+  .hero-grid {
+    background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 36%), radial-gradient(circle at 20% 20%, rgba(229, 9, 20, 0.3), transparent 26%), radial-gradient(circle at 80% 10%, rgba(255, 255, 255, 0.08), transparent 20%);
+  }
+
+  .heading-font {
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  .text-muted {
+    color: var(--muted);
+  }
+
+  .border-line {
+    border-color: var(--line);
+  }
+}
+
+.animate-rise {
+  animation: rise 0.7s ease both;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.8s ease both;
+}
+
+.animate-glow-pulse {
+  animation: glowPulse 7s ease-in-out infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes glowPulse {
+  0%,
+  100% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+}
