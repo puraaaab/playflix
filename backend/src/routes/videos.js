@@ -7,6 +7,7 @@ import { env } from '../config/env.js';
 import { timingSafeEqualString, verifyAccessToken } from '../utils/security.js';
 import { z } from 'zod';
 import { requireAuth, requireCsrf, requirePackedBody, requireSecuritySession, validateBody, verifySignedBody } from '../middleware/security.js';
+import { respondWithSecurityEnvelope } from '../utils/security.js';
 
 const router = express.Router();
 
@@ -25,7 +26,7 @@ const historySchema = z.object({
 router.get('/catalog', async (req, res, next) => {
   try {
     const videos = await query('SELECT id, title, slug, description, genre, maturity_rating, thumbnail_url, is_premium FROM videos ORDER BY created_at DESC');
-    return res.json({ videos });
+    return respondWithSecurityEnvelope(req, res, { videos });
   } catch (error) {
     next(error);
   }
@@ -34,7 +35,7 @@ router.get('/catalog', async (req, res, next) => {
 router.get('/featured', async (req, res, next) => {
   try {
     const videos = await query('SELECT id, title, slug, description, genre, maturity_rating, thumbnail_url, is_premium FROM videos ORDER BY is_premium DESC, created_at DESC LIMIT 6');
-    return res.json({ videos });
+    return respondWithSecurityEnvelope(req, res, { videos });
   } catch (error) {
     next(error);
   }
@@ -50,9 +51,9 @@ router.get('/my/watchlist', requireAuth, async (req, res, next) => {
        ORDER BY a.updated_at DESC`,
       [req.auth.sub]
     );
-    return res.json({ videos: rows });
+    return respondWithSecurityEnvelope(req, res, { videos: rows });
   } catch (error) {
-    next(error);
+    return respondWithSecurityEnvelope(req, res, { message: error.message || 'Unable to load watchlist.' }, 500);
   }
 });
 
@@ -66,9 +67,9 @@ router.get('/my/favorites', requireAuth, async (req, res, next) => {
        ORDER BY a.updated_at DESC`,
       [req.auth.sub]
     );
-    return res.json({ videos: rows });
+    return respondWithSecurityEnvelope(req, res, { videos: rows });
   } catch (error) {
-    next(error);
+    return respondWithSecurityEnvelope(req, res, { message: error.message || 'Unable to load favorites.' }, 500);
   }
 });
 
@@ -83,9 +84,9 @@ router.get('/my/history', requireAuth, async (req, res, next) => {
        ORDER BY h.last_watched_at DESC`,
       [req.auth.sub]
     );
-    return res.json({ videos: rows });
+    return respondWithSecurityEnvelope(req, res, { videos: rows });
   } catch (error) {
-    next(error);
+    return respondWithSecurityEnvelope(req, res, { message: error.message || 'Unable to load history.' }, 500);
   }
 });
 
@@ -102,9 +103,9 @@ router.get('/my/reactions', requireAuth, async (req, res, next) => {
     for (const row of rows) {
       reactions[String(row.video_id)] = row.action_type;
     }
-    return res.json({ reactions });
+    return respondWithSecurityEnvelope(req, res, { reactions });
   } catch (error) {
-    next(error);
+    return respondWithSecurityEnvelope(req, res, { message: error.message || 'Unable to load reactions.' }, 500);
   }
 });
 
@@ -114,7 +115,7 @@ router.post('/action', requireSecuritySession, requireCsrf, requirePackedBody, v
 
     const videoRows = await query('SELECT id FROM videos WHERE id = ? LIMIT 1', [videoId]);
     if (!videoRows[0]) {
-      return res.status(404).json({ message: 'Video not found.' });
+      return respondWithSecurityEnvelope(req, res, { message: 'Video not found.' }, 404);
     }
 
     await query(
@@ -134,7 +135,7 @@ router.post('/action', requireSecuritySession, requireCsrf, requirePackedBody, v
       );
     }
 
-    return res.json({ message: 'Action updated.' });
+    return respondWithSecurityEnvelope(req, res, { message: 'Action updated.' });
   } catch (error) {
     next(error);
   }
@@ -146,7 +147,7 @@ router.post('/history', requireSecuritySession, requireCsrf, requirePackedBody, 
 
     const videoRows = await query('SELECT id FROM videos WHERE id = ? LIMIT 1', [videoId]);
     if (!videoRows[0]) {
-      return res.status(404).json({ message: 'Video not found.' });
+      return respondWithSecurityEnvelope(req, res, { message: 'Video not found.' }, 404);
     }
 
     await query(
@@ -159,7 +160,7 @@ router.post('/history', requireSecuritySession, requireCsrf, requirePackedBody, 
       [req.auth.sub, videoId, positionSeconds, completed ? 1 : 0]
     );
 
-    return res.json({ message: 'History updated.' });
+    return respondWithSecurityEnvelope(req, res, { message: 'History updated.' });
   } catch (error) {
     next(error);
   }
@@ -170,14 +171,14 @@ router.post('/token/:videoId', async (req, res, next) => {
     // Issue a short-lived HMAC-signed stream token for the requesting user
     const accessToken = req.cookies?.playflix_access;
     if (!accessToken) {
-      return res.status(401).json({ message: 'Authentication required to issue stream token.' });
+      return respondWithSecurityEnvelope(req, res, { message: 'Authentication required to issue stream token.' }, 401);
     }
 
     let claims;
     try {
       claims = verifyAccessToken(accessToken);
     } catch (err) {
-      return res.status(401).json({ message: 'Invalid session.' });
+      return respondWithSecurityEnvelope(req, res, { message: 'Invalid session.' }, 401);
     }
 
     const videoId = String(req.params.videoId);
@@ -185,7 +186,7 @@ router.post('/token/:videoId', async (req, res, next) => {
     const payload = `${videoId}.${claims.sub}.${expires}`;
     const signature = crypto.createHmac('sha256', env.payloadSealPepper || 'dev-payload-pepper-change-me').update(payload).digest('hex');
     const token = `${expires}.${claims.sub}.${signature}`;
-    return res.json({ token, expires });
+    return respondWithSecurityEnvelope(req, res, { token, expires });
   } catch (error) {
     next(error);
   }
@@ -209,53 +210,53 @@ router.get('/stream/:videoId', async (req, res, next) => {
     if (!authUserId && req.query?.token) {
       const tokenParts = String(req.query.token).split('.');
       if (tokenParts.length !== 3) {
-        return res.status(403).json({ message: 'Invalid stream token.' });
+        return respondWithSecurityEnvelope(req, res, { message: 'Invalid stream token.' }, 403);
       }
       const [expiresStr, userId, signature] = tokenParts;
       const expires = Number.parseInt(expiresStr, 10);
       if (Number.isNaN(expires) || Date.now() > expires) {
-        return res.status(403).json({ message: 'Stream token expired.' });
+        return respondWithSecurityEnvelope(req, res, { message: 'Stream token expired.' }, 403);
       }
       const payload = `${req.params.videoId}.${userId}.${expires}`;
       const expected = crypto.createHmac('sha256', env.payloadSealPepper || 'dev-payload-pepper-change-me').update(payload).digest('hex');
       if (!timingSafeEqualString(expected, signature)) {
-        return res.status(403).json({ message: 'Invalid stream token signature.' });
+        return respondWithSecurityEnvelope(req, res, { message: 'Invalid stream token signature.' }, 403);
       }
       authUserId = String(userId);
       req.auth = { sub: authUserId };
     }
 
     if (!req.auth) {
-      return res.status(401).json({ message: 'Authentication required.' });
+      return respondWithSecurityEnvelope(req, res, { message: 'Authentication required.' }, 401);
     }
 
     if (!req.auth.subscriptionStatus || !req.auth.role) {
       const userRows = await query('SELECT id, role, subscription_status FROM users WHERE id = ? LIMIT 1', [req.auth.sub]);
       const user = userRows[0];
       if (!user) {
-        return res.status(401).json({ message: 'Authentication required.' });
+        return respondWithSecurityEnvelope(req, res, { message: 'Authentication required.' }, 401);
       }
       req.auth.role = user.role;
       req.auth.subscriptionStatus = user.subscription_status;
     }
 
     if (req.auth.subscriptionStatus !== 'active' && req.auth.role !== 'admin') {
-      return res.status(402).json({ message: 'An active subscription is required to stream premium content.' });
+      return respondWithSecurityEnvelope(req, res, { message: 'An active subscription is required to stream premium content.' }, 402);
     }
 
     const rows = await query('SELECT * FROM videos WHERE id = ? LIMIT 1', [req.params.videoId]);
     const video = rows[0];
     if (!video) {
-      return res.status(404).json({ message: 'Video not found.' });
+      return respondWithSecurityEnvelope(req, res, { message: 'Video not found.' }, 404);
     }
 
     if (!video.video_path) {
-      return res.status(404).json({ message: 'Stream asset is not configured yet.' });
+      return respondWithSecurityEnvelope(req, res, { message: 'Stream asset is not configured yet.' }, 404);
     }
 
     const filePath = path.resolve(video.video_path);
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ message: 'Stream file not found on disk.' });
+      return respondWithSecurityEnvelope(req, res, { message: 'Stream file not found on disk.' }, 404);
     }
 
     const stat = fs.statSync(filePath);

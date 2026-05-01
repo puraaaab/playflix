@@ -1,13 +1,28 @@
 node_modules
 .next
+dist
+
+# Environments
 .env
 .env.local
 .env.*.local
+frontend/.env.local
 backend/.env
-frontend/.env
+
+# Logs
 backend/logs
+*.log
+
+# Certs and Keys (CRITICAL)
+backend/certs/
+**/certs/
+*.pem
+server-encryption-keys.json
+
+# Media/Uploads
 backend/uploads
 backend/media
-*.log
+
+# System
 .DS_Store
 Thumbs.db

@@ -21,6 +21,7 @@ export const env = {
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-me',
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me',
   payloadSealPepper: process.env.PAYLOAD_SEAL_PEPPER || 'dev-payload-pepper-change-me',
+  databaseEncryptionKey: process.env.DATABASE_ENCRYPTION_KEY || 'dev-database-encryption-key-change-in-production',
   razorpayKeyId: process.env.RAZORPAY_KEY_ID || '',
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET || '',
   sslKeyPath: process.env.SSL_KEY_PATH || '',

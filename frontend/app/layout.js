@@ -32,6 +32,7 @@ export default async function RootLayout({ children }) {
             dangerouslySetInnerHTML={{
               __html: `window.__PLAYFLIX_SECURITY__ = ${JSON.stringify({
                 sessionId: securityContext.sessionId,
+                sessionKey: securityContext.sessionKey,
                 publicKey: securityContext.publicKey,
                 csrfToken: securityContext.csrfToken
               })};`

@@ -1,13 +1,13 @@
+
+"use client";
+
 import axios from 'axios';
-import { bootstrapSecurityContext, clearSecurityContext, packData, getSecurityToken, getSessionId, stampData } from './security.js';
+import { bootstrapSecurityContext, clearSecurityContext, hasSecurityPublicKey, packData, getSecurityToken, getSessionId, stampData, unsealData } from './security.js';
 
 function resolveApiBaseUrl() {
-  if (typeof window !== 'undefined') {
-    return '';
-  }
-
-  return process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+  return process.env.NEXT_PUBLIC_API_BASE_URL || 'https://localhost:4000';
 }
+
 
 const api = axios.create({
   withCredentials: true,
@@ -24,11 +24,22 @@ const refreshExemptRoutes = new Set([
   '/api/auth/logout'
 ]);
 
+function canUseSecurePayload() {
+  return typeof window !== 'undefined' && window.isSecureContext && typeof window.crypto?.subtle !== 'undefined';
+}
+
+async function maybeUnsealResponse(response) {
+  if (response?.headers?.['x-playflix-sealed'] === 'true') {
+    response.data = await unsealData(response.data);
+  }
+  return response;
+}
+
 api.interceptors.request.use(async (config) => {
-  // Resolve base URL dynamically so it always uses the correct hostname (IP or localhost)
   if (!config.baseURL) {
     config.baseURL = resolveApiBaseUrl();
   }
+
   await bootstrapSecurityContext();
 
   const method = (config.method || 'get').toLowerCase();
@@ -37,18 +48,23 @@ api.interceptors.request.use(async (config) => {
 
   config.headers = config.headers || {};
   config.headers['x-csrf-token'] = getSecurityToken() || '';
+
   const sessionId = getSessionId();
   if (sessionId) {
     config.headers['x-playflix-session'] = sessionId;
   }
 
-  if (shouldEncrypt && config.data && typeof config.data === 'object' && !('payload' in config.data && 'iv' in config.data && 'encryptedKey' in config.data)) {
+  const useSecurePayload = shouldEncrypt && canUseSecurePayload() && hasSecurityPublicKey();
+  if (shouldEncrypt && !useSecurePayload) {
+    throw new Error(`Encrypted request required for ${config.url}, but the secure browser bootstrap is unavailable.`);
+  }
+
+  if (useSecurePayload && config.data && typeof config.data === 'object' && !Array.isArray(config.data)) {
     const packed = await packData(config.data);
     const timestamp = String(Date.now());
-    const signature = await stampData(packed._rawKey, timestamp, packed.iv, packed.payload);
+    const signature = await stampData(packed._rawKey, timestamp, packed.envelope[0], packed.envelope[1]);
 
-    delete packed._rawKey;
-    config.data = packed;
+    config.data = packed.envelope;
     config.headers['x-playflix-mode'] = 'secure';
     config.headers['x-playflix-timestamp'] = timestamp;
     config.headers['x-playflix-signature'] = signature;
@@ -58,8 +74,16 @@ api.interceptors.request.use(async (config) => {
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  async (response) => maybeUnsealResponse(response),
   async (error) => {
+    if (error.response?.headers?.['x-playflix-sealed'] === 'true') {
+      try {
+        error.response.data = await unsealData(error.response.data);
+      } catch {
+        // Leave encrypted error payload as-is if decryption fails.
+      }
+    }
+
     const originalRequest = error.config;
     const requestUrl = originalRequest?.url || '';
     if (!originalRequest || error.response?.status !== 401 || originalRequest._retry || refreshExemptRoutes.has(requestUrl)) {
@@ -71,6 +95,13 @@ api.interceptors.response.use(
       await api.post('/api/auth/refresh');
       return api(originalRequest);
     } catch (refreshError) {
+      if (refreshError.response?.headers?.['x-playflix-sealed'] === 'true') {
+        try {
+          refreshError.response.data = await unsealData(refreshError.response.data);
+        } catch {
+          // ignore
+        }
+      }
       clearSecurityContext();
       if (requestUrl.startsWith('/api/payments/')) {
         return Promise.reject(error);

@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import crypto from 'node:crypto';
 import { env } from '../config/env.js';
-import { appendSecurityLog, unpackData, getBearerToken, stampData, timingSafeEqualString, verifyAccessToken } from '../utils/security.js';
+import { appendSecurityLog, getBearerToken, stampData, timingSafeEqualString, unpackData, verifyAccessToken } from '../utils/security.js';
 import { getSecuritySession } from '../services/securityStore.js';
+import { checkRateLimitStatus, trackFailedAuthAttempt } from '../utils/rateLimiter.js';
+import { verifyAndConsumeNonce } from '../utils/nonce.js';
 
 export function attachRequestContext(req, res, next) {
   req.requestId = crypto.randomUUID();
@@ -24,6 +26,11 @@ export function loadSecuritySession(req, res, next) {
 }
 
 export function requireSecuritySession(req, res, next) {
+  const isEncrypted = req.header('x-playflix-mode') === 'secure';
+  if (!isEncrypted) {
+    return next();
+  }
+
   if (!req.securitySession) {
     appendSecurityLog({ level: 'warn', event: 'missing_security_session', ip: req.ip, path: req.path }).catch(() => null);
     return res.status(400).json({ message: 'Security session missing.' });
@@ -32,6 +39,11 @@ export function requireSecuritySession(req, res, next) {
 }
 
 export function requireCsrf(req, res, next) {
+  const isEncrypted = req.header('x-playflix-mode') === 'secure';
+  if (!isEncrypted) {
+    return next();
+  }
+
   const headerToken = req.header('x-csrf-token');
   if (!req.securitySession || !headerToken || !timingSafeEqualString(req.securitySession.csrfToken, headerToken)) {
     appendSecurityLog({ level: 'warn', event: 'csrf_check_failed', ip: req.ip, path: req.path }).catch(() => null);
@@ -43,14 +55,16 @@ export function requireCsrf(req, res, next) {
 export function requirePackedBody(req, res, next) {
   const isEncrypted = req.header('x-playflix-mode') === 'secure';
   if (!isEncrypted) {
-    return res.status(400).json({ message: 'Packed payload required.' });
+    req.encryptedBody = null;
+    req.oneTimeKey = null;
+    return next();
   }
 
   if (!req.securitySession) {
     return res.status(400).json({ message: 'Security session missing.' });
   }
 
-  if (!req.body || typeof req.body.payload !== 'string' || typeof req.body.iv !== 'string' || typeof req.body.encryptedKey !== 'string') {
+  if (!Array.isArray(req.body) || req.body.length < 2) {
     return res.status(400).json({ message: 'Packed payload envelope is invalid.' });
   }
 
@@ -67,6 +81,11 @@ export function requirePackedBody(req, res, next) {
 }
 
 export function verifySignedBody(req, res, next) {
+  const isEncrypted = req.header('x-playflix-mode') === 'secure';
+  if (!isEncrypted) {
+    return next();
+  }
+
   const timestamp = req.header('x-playflix-timestamp');
   const signature = req.header('x-playflix-signature');
   if (!timestamp || !signature || !req.securitySession) {
@@ -83,8 +102,8 @@ export function verifySignedBody(req, res, next) {
   if (!req.oneTimeKey) {
     return res.status(400).json({ message: 'Missing one-time key for signature verification.' });
   }
-  
-  const expected = stampData(req.oneTimeKey, timestamp, encryptedBody.iv || '', encryptedBody.payload || '');
+
+  const expected = stampData(req.oneTimeKey, timestamp, Array.isArray(encryptedBody) ? encryptedBody[0] : '', Array.isArray(encryptedBody) ? encryptedBody[1] : '');
   if (!timingSafeEqualString(expected, signature)) {
     appendSecurityLog({ level: 'warn', event: 'request_signature_failed', ip: req.ip, path: req.path }).catch(() => null);
     return res.status(403).json({ message: 'Request signature verification failed.' });
@@ -129,6 +148,58 @@ export function requireRole(role) {
     }
     next();
   };
+}
+
+export function requireNonce(req, res, next) {
+  const nonce = req.body?.nonce || req.header('x-playflix-nonce');
+  if (!nonce) {
+    return res.status(400).json({ message: 'Nonce required for replay prevention.' });
+  }
+
+  req.pendingNonce = nonce;
+  next();
+}
+
+export async function checkAuthRateLimit(req, res, next) {
+  const ipAddress = req.ip || req.connection.remoteAddress;
+  const endpoint = req.path;
+  
+  const status = await checkRateLimitStatus(req.auth?.id || null, ipAddress, endpoint);
+  
+  if (status.isLocked) {
+    appendSecurityLog({
+      level: 'warn',
+      event: 'rate_limit_locked',
+      ip: ipAddress,
+      path: endpoint,
+      userId: req.auth?.id
+    }).catch(() => null);
+    
+    return res.status(429).json({
+      message: 'Too many attempts. Please try again later.',
+      retryAfterSeconds: status.retryAfterSeconds
+    });
+  }
+  
+  next();
+}
+
+export async function recordFailedAuthAttempt(error, userId, ipAddress, endpoint) {
+  const result = await trackFailedAuthAttempt(userId, ipAddress, endpoint);
+  
+  if (result.isLocked) {
+    appendSecurityLog({
+      level: 'error',
+      event: 'auth_locked_exponential_backoff',
+      ip: ipAddress,
+      path: endpoint,
+      userId,
+      backoffLevel: result.backoffLevel,
+      lockedUntil: result.lockedUntil
+    }).catch(() => null);
+  }
+  
+  return result;
 }
 
 export function requestValidationErrorHandler(error, req, res, next) {

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import api from '../lib/api.js';
+import { bootstrapSecurityContext, hasSecurityPublicKey } from '../lib/security.js';
 
 export default function AuthForm({ mode, onSuccess }) {
   const [name, setName] = useState('');
@@ -15,15 +16,22 @@ export default function AuthForm({ mode, onSuccess }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    console.log('[AuthForm] Form submitted');
     setLoading(true);
     setError('');
 
     try {
+      // Ensure security context is ready before login
+      await bootstrapSecurityContext();
+      console.log('[PlayFlix][DEBUG] AuthForm hasSecurityPublicKey:', hasSecurityPublicKey());
       const payload = isSignup ? { name, email, password } : { email, password };
       const endpoint = isSignup ? '/api/auth/signup' : '/api/auth/login';
-      await api.post(endpoint, payload);
+      console.log('[AuthForm] Sending request to', endpoint);
+      const response = await api.post(endpoint, payload);
+      console.log('[AuthForm] Request succeeded:', response.data);
       onSuccess?.();
     } catch (requestError) {
+      console.error('[AuthForm] Request failed:', requestError);
       setError(requestError?.response?.data?.message || 'Authentication failed.');
     } finally {
       setLoading(false);

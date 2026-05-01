@@ -13,6 +13,75 @@ const refreshTokenTtl = '7d';
 
 import { getServerPrivateKey } from '../services/securityStore.js';
 
+function decodeSessionKey(sessionKey) {
+  return Buffer.from(String(sessionKey), 'base64');
+}
+
+function encodeBuffer(buffer) {
+  return Buffer.from(buffer).toString('base64');
+}
+
+export function sealData(payload, sessionKey) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', decodeSessionKey(sessionKey), iv);
+  const input = Buffer.from(JSON.stringify(payload), 'utf8');
+  const encrypted = Buffer.concat([cipher.update(input), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  const envelope = {
+    iv: encodeBuffer(iv),
+    payload: encodeBuffer(Buffer.concat([encrypted, tag]))
+  };
+
+  return {
+    payload: encodeBuffer(Buffer.from(JSON.stringify(envelope), 'utf8'))
+  };
+}
+
+export function unsealData(envelope, sessionKey) {
+  let payloadValue = envelope.payload;
+  let ivValue = envelope.iv;
+
+  if (typeof payloadValue === 'string' && !ivValue) {
+    try {
+      const packedEnvelope = JSON.parse(Buffer.from(payloadValue, 'base64').toString('utf8'));
+      if (packedEnvelope && typeof packedEnvelope === 'object') {
+        payloadValue = packedEnvelope.payload;
+        ivValue = packedEnvelope.iv;
+      }
+    } catch {
+      // Fall through to legacy handling below.
+    }
+  }
+
+  const payloadBuffer = Buffer.from(payloadValue, 'base64');
+  const ivBuffer = Buffer.from(ivValue, 'base64');
+  const ciphertext = payloadBuffer.subarray(0, payloadBuffer.length - 16);
+  const authTag = payloadBuffer.subarray(payloadBuffer.length - 16);
+
+  const decipher = crypto.createDecipheriv('aes-256-gcm', decodeSessionKey(sessionKey), ivBuffer);
+  decipher.setAuthTag(authTag);
+  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+
+  return JSON.parse(decrypted);
+}
+
+export function signSessionPayload(sessionKey, timestamp, iv, payload) {
+  return crypto
+    .createHmac('sha256', decodeSessionKey(sessionKey))
+    .update(`${timestamp}.${iv}.${payload}`)
+    .digest('base64');
+}
+
+export function respondWithSecurityEnvelope(req, res, payload, status = 200) {
+  const sessionKey = req.securitySession?.sessionKey;
+  if (sessionKey) {
+    res.setHeader('x-playflix-sealed', 'true');
+    return res.status(status).json(sealData(payload, sessionKey));
+  }
+
+  return res.status(status).json(payload);
+}
+
 export function stampData(key, timestamp, iv, payload) {
   return crypto
     .createHmac('sha256', key)
@@ -22,21 +91,24 @@ export function stampData(key, timestamp, iv, payload) {
 
 export function packData(payload, key) {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv(['a','e','s','-','2','5','6','-','g','c','m'].join(''), key, iv);
+  const cipher = crypto.createCipheriv(['a', 'e', 's', '-', '2', '5', '6', '-', 'g', 'c', 'm'].join(''), key, iv);
   const input = Buffer.from(JSON.stringify(payload), 'utf8');
   const encrypted = Buffer.concat([cipher.update(input), cipher.final()]);
   const tag = cipher.getAuthTag();
+  const packedPayload = {
+    iv: iv.toString('base64'),
+    payload: Buffer.concat([encrypted, tag]).toString('base64')
+  };
 
   return {
-    payload: Buffer.concat([encrypted, tag]).toString('base64'),
-    iv: iv.toString('base64')
+    payload: Buffer.from(JSON.stringify(packedPayload), 'utf8').toString('base64')
   };
 }
 
 export function unpackData(envelope) {
   const rsaPrivateKey = getServerPrivateKey();
-  const encryptedKeyBuffer = Buffer.from(envelope.encryptedKey, 'base64');
-  
+  const encryptedKeyBuffer = Buffer.from(envelope[0], 'base64');
+
   const symmetricKey = crypto.privateDecrypt(
     {
       key: rsaPrivateKey,
@@ -46,15 +118,30 @@ export function unpackData(envelope) {
     encryptedKeyBuffer
   );
 
-  const payloadBuffer = Buffer.from(envelope.payload, 'base64');
-  const ivBuffer = Buffer.from(envelope.iv, 'base64');
+  let payloadValue = envelope[1];
+  let ivValue = envelope.iv;
+
+  if (typeof payloadValue === 'string' && !ivValue) {
+    try {
+      const packedEnvelope = JSON.parse(Buffer.from(payloadValue, 'base64').toString('utf8'));
+      if (packedEnvelope && typeof packedEnvelope === 'object') {
+        payloadValue = packedEnvelope.payload;
+        ivValue = packedEnvelope.iv;
+      }
+    } catch {
+      // Fall through to legacy handling below.
+    }
+  }
+
+  const payloadBuffer = Buffer.from(payloadValue, 'base64');
+  const ivBuffer = Buffer.from(ivValue, 'base64');
   const ciphertext = payloadBuffer.subarray(0, payloadBuffer.length - 16);
   const authTag = payloadBuffer.subarray(payloadBuffer.length - 16);
-  
-  const decipher = crypto.createDecipheriv(['a','e','s','-','2','5','6','-','g','c','m'].join(''), symmetricKey, ivBuffer);
+
+  const decipher = crypto.createDecipheriv(['a', 'e', 's', '-', '2', '5', '6', '-', 'g', 'c', 'm'].join(''), symmetricKey, ivBuffer);
   decipher.setAuthTag(authTag);
   const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
-  
+
   return {
     oneTimeKey: symmetricKey,
     decrypted: JSON.parse(decrypted)
@@ -158,4 +245,20 @@ export function getBearerToken(req) {
     return null;
   }
   return header.slice('Bearer '.length);
+}
+
+export function shouldRotateSessionKey(sessionTimestamp) {
+  // Rotate every 60-120 minutes
+  const sessionAgeMinutes = (Date.now() - sessionTimestamp) / (1000 * 60);
+  return sessionAgeMinutes > 60;
+}
+
+export function createSessionKeyRotation(oldSessionKey) {
+  // Generate new session key (32 bytes base64)
+  const newKey = crypto.randomBytes(32).toString('base64');
+  return {
+    oldKey: oldSessionKey,
+    newKey,
+    rotatedAt: Date.now()
+  };
 }

@@ -7,14 +7,12 @@ import api from '../../../lib/api.js';
 
 function resolveApiBaseUrl() {
   if (typeof window !== 'undefined') {
-    const configured = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-    if (!configured || configured.includes('localhost') || configured.includes('127.0.0.1')) {
-      return `${window.location.protocol}//${window.location.hostname}:4000`;
+    if (window.location.hostname === 'localhost') {
+      return `https://localhost:4000`;
     }
-    return configured;
+    return `${window.location.protocol}//${window.location.hostname}:4000`;
   }
-
-  return process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+  return process.env.NEXT_PUBLIC_API_BASE_URL || 'https://localhost:4000';
 }
 
 const API_BASE_URL = resolveApiBaseUrl();

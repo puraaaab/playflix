@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import hpp from 'hpp';
 import rateLimit from 'express-rate-limit';
+import crypto from 'node:crypto';
 import { env } from './config/env.js';
 import { attachRequestContext, loadSecuritySession, requestValidationErrorHandler } from './middleware/security.js';
 import authRoutes from './routes/auth.js';
@@ -17,6 +18,14 @@ export function createApp() {
 
   app.set('trust proxy', 1);
   app.use(attachRequestContext);
+  
+  // Add nonce to each request for CSP
+  app.use((req, res, next) => {
+    req.nonce = crypto.randomBytes(16).toString('hex');
+    res.setHeader('x-content-security-policy-nonce', req.nonce);
+    next();
+  });
+  
   const allowedOrigins = env.clientOrigin.split(',').map((o) => o.trim()).filter(Boolean);
 
   app.use(helmet({
@@ -24,15 +33,23 @@ export function createApp() {
       useDefaults: true,
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", 'https://checkout.razorpay.com'],
+        scriptSrc: ["'self'", (req, res) => `'nonce-${req.nonce}'`, 'https://checkout.razorpay.com'],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
         imgSrc: ["'self'", 'data:', 'https:'],
         connectSrc: ["'self'", ...allowedOrigins, 'https://checkout.razorpay.com'],
-        frameSrc: ['https://checkout.razorpay.com']
+        frameSrc: ['https://checkout.razorpay.com'],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: []
       }
     },
-    crossOriginEmbedderPolicy: false
+    crossOriginEmbedderPolicy: false,
+    hsts: {
+      maxAge: 31536000, // 1 year
+      includeSubDomains: true,
+      preload: true
+    },
+    referrerPolicy: { policy: 'no-referrer' }
   }));
   app.use(cors({
     origin: (origin, callback) => {
@@ -46,16 +63,19 @@ export function createApp() {
       'Content-Type',
       'Authorization',
       'x-csrf-token',
+      'x-playflix-mode',
       'x-playflix-enc',
       'x-playflix-timestamp',
       'x-playflix-signature',
-      'x-playflix-session'
+      'x-playflix-session',
+      'x-playflix-nonce'
     ],
+    exposedHeaders: ['x-playflix-sealed', 'x-playflix-signature', 'x-playflix-timestamp', 'x-playflix-mode', 'x-csrf-token'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
   }));
   app.use(hpp());
   app.use(cookieParser());
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '256kb' }));
   app.use(express.urlencoded({ extended: false }));
   app.use(loadSecuritySession);
   app.use(rateLimit({

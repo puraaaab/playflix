@@ -8,8 +8,8 @@ const cliHostIndex = process.argv.indexOf('--host');
 const cliHostValue = cliHostIndex >= 0 ? process.argv[cliHostIndex + 1] : '';
 const hostname = process.env.HOST || process.env.HOSTNAME || cliHostValue || '0.0.0.0';
 const port = Number.parseInt(process.env.PORT || '3000', 10);
-const keyPath = process.env.SSL_KEY_PATH || '';
-const certPath = process.env.SSL_CERT_PATH || '';
+const keyPath = process.env.SSL_KEY_PATH || 'certs/localhost-key.pem';
+const certPath = process.env.SSL_CERT_PATH || 'certs/localhost-cert.pem';
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
